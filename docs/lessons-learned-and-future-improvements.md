@@ -1,41 +1,17 @@
-# Lessons Learned & Future Improvements
+# Lessons Learned & What's Next
 
-## Lessons Learned
+## What I learned doing this
 
-1. **DNS-based failover (Traffic Manager) is a real, low-cost DR pattern** — but it's not instant. RTO is bounded by DNS TTL and resolver/client caching, not by Traffic Manager's probe interval alone. Any HA/DR design using Traffic Manager needs to state this trade-off explicitly.
+- DNS-based failover (Traffic Manager) works, but it's not instant — it depends on DNS caching and TTL on the client side, not just how fast Traffic Manager detects the outage. If someone asks about recovery time, that's the honest answer.
+- Priority routing and Geographic routing solve different problems even though they're both "Traffic Manager routing methods." Priority is about availability (failover when something breaks). Geographic is about sending people to the right place regardless of health (compliance, latency, etc.). I hadn't really separated those two ideas in my head until I configured both side by side.
+- Subscription quotas are a real constraint, not just a settings screen. Hitting the free-tier vCPU limit forced me to rethink the design, and the result (Traffic Manager handling inter-region failover instead of an internal load balancer handling intra-region balancing) ended up being a reasonable multi-region pattern anyway.
+- It's worth actually testing things instead of trusting the portal's status icons — the SAS token / public access test and the alert-firing test were both cases where I proved something worked instead of assuming it did.
 
-2. **Two routing methods, two different problems.** Configuring both a **Priority** profile (`dealer`) and a **Geographic** profile (`dealer2`) on the same backend infrastructure made the distinction concrete:
-   - *Priority* = "always prefer Region A unless it's down" → availability-driven.
-   - *Geographic* = "send users to the region closest/most relevant to them" → performance/compliance-driven (e.g. data residency).
+## What I'd do differently next time
 
-3. **Subscription quotas are part of the architecture, not just an annoyance.** Hitting the free-tier vCPU quota forced a pivot from "multiple VMs + internal Load Balancer per region" to "single VM per region + Traffic Manager for inter-region failover." The resulting design is arguably **more representative of a real multi-region DR pattern** than the original plan would have been.
-
-4. **Security defaults are worth testing, not just configuring.** Reproducing the `PublicAccessNotPermitted` error before issuing a SAS token proved the storage account's secure-by-default posture was actually in effect — not just selected in a dropdown.
-
-5. **An alert rule isn't "done" until it has fired at least once.** Deliberately causing `VMDown_CUS` to fire validated the entire monitoring chain end-to-end (metric → rule → alert → Log Analytics).
-
----
-
-## Future Improvements
-
-### Reliability / HA
-- Move from **Availability Sets** to **Availability Zones + Virtual Machine Scale Sets (VMSS)** for stronger intra-region resiliency once subscription limits allow.
-- Add **Azure Backup** and/or **Azure Site Recovery** for VM-level disaster recovery in addition to the application-layer DNS failover already in place.
-- Introduce **Azure Front Door** or **Application Gateway** for L7 global routing — faster failover than DNS TTL, plus WAF and SSL offload.
-
-### Security
-- Replace **account-key-based SAS tokens** with **Azure AD–based access** (RBAC + Managed Identity, or user-delegation SAS) to remove long-lived shared secrets from the document distribution flow.
-- Apply **Azure Policy** to enforce "public blob access disabled" and "NSG required on every subnet" at the subscription level, rather than relying on per-resource configuration.
-- Enable **Microsoft Defender for Cloud** recommendations across both resource groups and remediate the top findings.
-
-### Cost Optimization
-- Right-size the B2s VMs based on actual CPU/memory utilization data from the Log Analytics workspace once real traffic patterns exist.
-- Evaluate **Azure Hybrid Benefit** for the Windows Server licensing if this were extended with on-prem licenses.
-- Consider **Auto-shutdown schedules** for non-production VMs (already available as a VM setting) to control dev/test spend.
-
-### Observability
-- Build a **Workbook or Grafana dashboard** on top of `DealerMonitoringWorkspace` for a single-pane-of-glass view of both regions (CPU, memory, disk, network, availability, Traffic Manager endpoint health).
-- Add **Application Insights** if/when the static site is replaced with a real application tier, for request-level tracing.
-
-### Infrastructure as Code
-- This project was built manually via the Azure Portal to focus on understanding each service in isolation. The natural next step — **rebuilding this exact architecture in Terraform** — is tracked as a **separate follow-up project** (see proposal document provided alongside this repo) to demonstrate IaC, state management, and repeatable deployments.
+- Build this with Terraform instead of clicking through the Portal. That's a separate project I'm planning, so I can compare doing it manually vs. as code.
+- Look at Azure Front Door or Application Gateway instead of (or alongside) Traffic Manager — DNS failover is fine but a real load balancer would fail over faster.
+- If I had a paid subscription with more quota, scale each region to more than one VM, or move to VM Scale Sets, so there's actual load balancing within a region and not just failover between them.
+- Swap SAS tokens for Azure AD-based access (RBAC + Managed Identity) on the storage account, so there's no shared secret floating around.
+- Add Azure Backup or Site Recovery for VM-level recovery on top of the DNS failover that's already there.
+- Build a simple dashboard (Workbook or Grafana) on top of the Log Analytics data instead of checking each metric individually.

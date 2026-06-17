@@ -1,0 +1,7 @@
+# Personal career prep materials — not part of the public project, kept local only
+resume/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp

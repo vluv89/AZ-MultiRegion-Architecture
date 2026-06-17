@@ -1,5 +1,7 @@
 # Architecture Diagrams
 
+A closer look at how everything connects, and what the failover test actually looked like step by step.
+
 ## 1. Network & Infrastructure Topology
 
 ```mermaid
@@ -45,10 +47,9 @@ graph TB
 
 ---
 
-## 2. Disaster Recovery Failover Sequence (Validated)
+## 2. What happened during the failover test
 
-This sequence reflects the failover behaviour observed and validated during testing —
-see [`../docs/troubleshooting.md`](../docs/troubleshooting.md) for the full narrative.
+This is the sequence from the failover test described in [`../docs/troubleshooting.md`](../docs/troubleshooting.md) — South India was taken offline on purpose to see how Traffic Manager would react.
 
 ```mermaid
 sequenceDiagram
@@ -72,23 +73,4 @@ sequenceDiagram
 
     Client->>CUS: Connects to Central US endpoint
     CUS->>Client: Serves Dealer Portal site
-```
-
----
-
-## 3. Traffic Manager Routing Methods Comparison
-
-```mermaid
-graph LR
-    subgraph Profile1["Profile: dealer (Priority Routing)"]
-        A["Incoming request"] --> B{Is Priority 1<br/>(South India) healthy?}
-        B -->|Yes| C[Route to South India]
-        B -->|No| D[Failover to Central US<br/>Priority 2]
-    end
-
-    subgraph Profile2["Profile: dealer2 (Geographic Routing)"]
-        E["Incoming request"] --> F{User region?}
-        F -->|Asia: India, China<br/>Australia/Pacific: NSW| G[Route to South India - STI1]
-        F -->|Other regions| H[Route to Central US - CUS1]
-    end
 ```

@@ -1,204 +1,142 @@
-# Azure Multi-Region High Availability & Disaster Recovery Architecture
+# Azure Multi-Region High Availability & DR Setup
 
-[![Platform](https://img.shields.io/badge/Platform-Microsoft%20Azure-0078D4)](#)
-[![Status](https://img.shields.io/badge/Status-Completed-success)](#)
-[![Type](https://img.shields.io/badge/Type-Personal%20Cloud%20Project-blue)](#)
+This is a personal project I built while studying for the AZ-104 (Azure Administrator) exam. The scenario: a company is migrating from on-premises to Azure, and needs its customer-facing website to stay available even if an entire Azure region goes down.
 
-A personal cloud engineering project that designs and deploys a **multi-region, internet-facing web application** on Azure with built-in high availability, disaster recovery via automated DNS failover, identity migration from on-premises AD, and centralized monitoring.
+I deployed the same website to two Azure regions (Central US and South India), connected them, put Azure Traffic Manager in front of both so traffic automatically reroutes if one region fails, migrated user identity to an Azure-hosted domain controller, locked down document storage, and set up monitoring across both regions. I also tested the failover myself instead of just trusting that it was configured correctly.
 
-> **Project type:** Independent / self-directed Azure infrastructure project (AZ-104 applied learning project)
-> **Scenario:** A manufacturing company ("Bluetim") is migrating its on-premises infrastructure and a customer-facing "Dealer Portal" web application to Azure, with a requirement for high availability across two geographic regions.
+This was built manually through the Azure Portal, not with Terraform — that's a separate project I'm planning next.
 
 ---
 
-## 1. Overview
+## What I built
 
-| | |
-|---|---|
-| **Goal** | Migrate on-prem identity + a customer-facing web app to Azure with multi-region HA/DR |
-| **Regions** | Central US (primary compute) & South India (secondary compute), Australia East (identity) |
-| **Key outcomes** | Cross-region failover validated live via DNS + ICMP testing, secure document distribution via SAS tokens, full metric-based alerting across both regions |
-
-### Key Outcomes
-- Deployed a **dual-region web tier** (Central US + South India) serving an identical customer-facing site, peered at the network level.
-- Configured **Azure Traffic Manager** with two routing strategies (Priority for DR failover, Geographic for latency-based routing) and **validated a live regional failover** event end-to-end.
-- Migrated on-prem **Active Directory (users, groups, DNS)** to an Azure-hosted Domain Controller.
-- Secured document distribution using **Blob Storage with public access disabled** and **time-limited SAS tokens**.
-- Built **Azure Monitor + Log Analytics** alerting across compute, disk, network, and VM availability metrics for both regions.
+- Two Azure regions (Central US, South India), each with its own VNet, subnet, NSG, and a Windows Server VM running the same website.
+- The two VNets are peered so resources in each region can talk to each other.
+- Azure Traffic Manager in front of both regions, set up two ways:
+  - **Priority routing** — South India is the main region, Central US takes over automatically if South India goes down.
+  - **Geographic routing** — a second profile that sends users in Asia/Australia to South India and everyone else to Central US.
+- A domain controller VM running Active Directory and DNS, standing in for the on-prem AD that would normally be migrated.
+- Blob Storage for sharing documents with dealers, with public access turned off and SAS tokens used for access instead.
+- Azure Monitor + a Log Analytics workspace, with alerts on CPU, memory, disk, network, and whether each VM is up.
 
 ---
 
-## 2. Architecture Diagram
-
-> Full diagrams (architecture + failover sequence) are in [`architecture/architecture-diagram.md`](architecture/architecture-diagram.md)
+## Architecture
 
 ```mermaid
 graph TB
-    User[("Global Users")] --> TM["Azure Traffic Manager<br/>dealer (Priority) / dealer2 (Geographic)"]
+    User[("Users")] --> TM["Azure Traffic Manager<br/>(Priority profile + Geographic profile)"]
 
-    subgraph CUS["Central US — RG-CentralUS"]
-        direction TB
-        VNetCUS["VNet-CentralUS<br/>10.1.0.0/16"] --> SubCUS["Subnet-CentralUS"]
-        SubCUS --> NSGCUS["NSG-CentralUS"]
-        SubCUS --> VMCUS["VM-CentralUS<br/>Win Server 2016 (B2s)<br/>Dealer Portal Site"]
-        VMCUS --> AVSETCUS["Availability Set<br/>2 FD / 5 UD"]
-        VMCUS --- PIPCUS["Public IP<br/>13.89.72.193"]
+    subgraph CUS["Central US"]
+        VMCUS["VM-CentralUS<br/>Windows Server 2016<br/>Website"]
+        VMCUS --- PIPCUS["Public IP"]
     end
 
-    subgraph STI["South India — RG-SouthIndia"]
-        direction TB
-        VNetSTI["VNet-SouthIndia<br/>10.2.0.0/16"] --> SubSTI["Subnet-SouthIndia"]
-        SubSTI --> NSGSTI["NSG-SouthIndia"]
-        SubSTI --> VMSTI["VM-SouthIndia<br/>Win Server 2016 (B2s)<br/>Dealer Portal Site"]
-        VMSTI --> AVSETSTI["Availability Set<br/>2 FD / 5 UD"]
-        VMSTI --- PIPSTI["Public IP<br/>135.13.16.54"]
+    subgraph STI["South India"]
+        VMSTI["VM-SouthIndia<br/>Windows Server 2016<br/>Website"]
+        VMSTI --- PIPSTI["Public IP"]
     end
 
-    TM -->|Secondary / Performance| PIPCUS
-    TM -->|Primary / Geo-mapped| PIPSTI
-    VNetCUS <-. VNet Peering .-> VNetSTI
+    TM -->|backup region| PIPCUS
+    TM -->|primary region| PIPSTI
+    CUS <-. VNet Peering .-> STI
 
-    subgraph ID["Australia East — Identity"]
-        DC["DCVM1<br/>AD DS + DNS Server"]
-    end
+    DC["Domain Controller<br/>AD + DNS"]
+    Blob["Blob Storage<br/>(SAS token access only)"]
+    LA["Log Analytics<br/>+ Alerts"]
 
-    subgraph SVC["Shared Services"]
-        Blob["Storage Account: dealerdataorg<br/>Container: dealer-docs<br/>(SAS-token access only)"]
-        LA["Log Analytics Workspace<br/>DealerMonitoringWorkspace"]
-    end
-
+    DC -. identity .-> CUS
+    DC -. identity .-> STI
     VMCUS -. metrics .-> LA
     VMSTI -. metrics .-> LA
-    DC -. identity .-> VNetCUS
-    DC -. identity .-> VNetSTI
 ```
 
----
-
-## 3. Technologies Used
-
-- **Compute:** Azure Virtual Machines (Windows Server 2016 Datacenter, Standard B2s), Availability Sets
-- **Networking:** Azure Virtual Network (VNet), Subnets, Network Security Groups (NSG), VNet Peering, Public IPs
-- **Traffic Management:** Azure Traffic Manager (Priority routing & Geographic routing profiles)
-- **Identity:** Active Directory Domain Services (AD DS), DNS Server (on a domain controller VM)
-- **Storage:** Azure Blob Storage, Shared Access Signature (SAS) tokens
-- **Monitoring:** Azure Monitor, Log Analytics Workspace, Metric & Activity Log Alert Rules
-- **Tooling:** Azure Portal, Windows `nslookup` / `ping` for DNS & connectivity validation, RDP
+A more detailed version of this diagram, plus a step-by-step of what happened during the failover test, is in [`architecture/architecture-diagram.md`](architecture/architecture-diagram.md).
 
 ---
 
-## 4. Infrastructure Components
+## Tools and services used
 
-| Component | Detail |
-|---|---|
-| **Resource Groups** | `RG-CentralUS`, `RG-SouthIndia`, plus a dedicated RG for the AD/DNS domain controller |
-| **VNets** | `VNet-CentralUS` (10.1.0.0/16), `VNet-SouthIndia` (10.2.0.0/16), `AD1DC1-vnet` (10.0.0.0/16, Australia East) |
-| **NSGs** | `NSG-CentralUS`, `NSG-SouthIndia` — region-scoped network security groups on each subnet |
-| **VMs** | `VM-CentralUS` (Central US, 13.89.72.193), `VM-SouthIndia` (South India, 135.13.16.54) — both Windows Server 2016, Standard B2s, hosting the same static "Dealer Portal" site |
-| **Availability Sets** | `AVSET-CentralUS`, `AVSET-SouthIndia` — 2 fault domains / 5 update domains each |
-| **Domain Controller** | `DCVM1` — runs Active Directory Domain Services + DNS Manager, migrated users/groups from on-prem AD |
-| **Storage Account** | `dealerdataorg` → container `dealer-docs` — hosts dealer handbook documents |
-| **Traffic Manager Profiles** | `dealer` (Priority routing — South India = Priority 1 / primary, Central US = Priority 2 / secondary) and `dealer2` (Geographic routing — Asia/Australia traffic geo-mapped to the South India endpoint) |
-| **VNet Peering** | `VNet-CentralUS` ↔ `VNet-SouthIndia` (bidirectional peering, both sides "Connected") |
-| **Monitoring** | `DealerMonitoringWorkspace` (Log Analytics) + alert rules for CPU %, available memory, OS/data disk IOPS, network in/out totals, and VM availability for both VMs |
+Azure Virtual Network, Subnets, Network Security Groups, VNet Peering, Azure VMs, Availability Sets, Azure Traffic Manager, Active Directory Domain Services, DNS, Azure Blob Storage, Shared Access Signatures (SAS), Azure Monitor, Log Analytics. Tested connectivity and DNS resolution using `ping` and `nslookup`.
 
 ---
 
-## 5. Deployment Steps
+## How it's put together
 
-1. **Identity foundation** — Deployed `DCVM1` (Windows Server) via an ARM template, promoted to a Domain Controller, configured AD DS (users, security groups) and DNS to mirror the on-prem directory structure.
-2. **Networking** — Created `VNet-CentralUS` and `VNet-SouthIndia` with dedicated subnets and NSGs, mirroring the on-prem network segmentation. Configured **VNet Peering** between the two regional VNets for cross-region connectivity.
-3. **Compute** — Provisioned `VM-CentralUS` and `VM-SouthIndia` (Windows Server 2016, Standard B2s) inside their respective subnets, each assigned a Public IP and placed into a region-specific **Availability Set** (2 fault domains / 5 update domains).
-4. **Application** — Deployed a static HTML "Dealer Portal" site (Bluetim) onto IIS on both VMs so each region serves an identical copy of the app.
-5. **Storage** — Created storage account `dealerdataorg` with container `dealer-docs`, disabled public blob access, uploaded `Dealer_Handbook.pdf`, and generated a **read-only, HTTPS-only, time-bound SAS token** for controlled distribution to dealers.
-6. **Traffic Management** —
-   - Created Traffic Manager profile **`dealer`** with **Priority routing**: South India endpoint = Priority 1 (primary), Central US endpoint = Priority 2 (failover).
-   - Created a second profile **`dealer2`** with **Geographic routing**, mapping Asia (India, China) and Australia/Pacific traffic to the South India endpoint.
-   - Enabled health checks (HTTP probes) on both endpoints.
-7. **Monitoring** — Deployed `DealerMonitoringWorkspace` (Log Analytics) and created metric alert rules for CPU %, memory, disk IOPS, network throughput, and VM availability (`VMDown_CUS`, `VMDown_STI`) across both VMs.
-8. **Validation** — Used `ping` and `nslookup` from a client to confirm Traffic Manager DNS resolution, regional routing, and automatic failover behaviour (see [Troubleshooting](docs/troubleshooting.md)).
+**Identity** — I deployed a Windows VM and promoted it to a domain controller, then set up Active Directory and DNS on it to represent the migrated on-prem identity.
 
----
+**Networking** — Created a VNet and subnet in each region with its own NSG, then peered the two VNets so they could reach each other.
 
-## 6. Security Considerations
+**Compute** — One VM per region, each with a public IP and sitting in an Availability Set (I wanted multiple VMs per region for proper load balancing, but my subscription's free-tier CPU quota wouldn't allow it — more on that below).
 
-- **No public blob access** — the `dealer-docs` container has anonymous access explicitly disabled. A direct browser request to the blob URL returns `PublicAccessNotPermitted`.
-- **SAS tokens over account keys** — document distribution to external dealers uses **Shared Access Signatures** scoped to read-only, HTTPS-only, with a defined start/expiry window — instead of handing out storage account keys.
-- **Network segmentation** — each region has its own VNet/subnet/NSG, limiting blast radius and controlling inbound traffic per region.
-- **Identity migration** — centralizing AD in Azure (rather than leaving multiple on-prem DCs) gives a single point for access control and auditing going forward.
-- **Availability Sets** — spreading VM instances across fault/update domains reduces the chance that a single hardware failure or host-level maintenance event takes down the whole regional tier.
+**Website** — A simple HTML site, deployed identically to both VMs so either region can serve it.
+
+**Storage** — Created a storage account and container for dealer documents, turned off public access, and used SAS tokens to share files securely instead.
+
+**Traffic Manager** — Set up two profiles on the same two endpoints: one using Priority routing for failover, one using Geographic routing so nearby users get sent to the closer region.
+
+**Monitoring** — Set up a Log Analytics workspace and alert rules for CPU, memory, disk, network, and VM availability on both VMs.
 
 ---
 
-## 7. Monitoring & Logging
+## Security notes
 
-- **Log Analytics Workspace:** `DealerMonitoringWorkspace` — central workspace for activity logs and diagnostics across both resource groups.
-- **Alert rules configured (per VM, both regions):**
-  - `Percentage CPU > 50/80`
-  - `Available Memory Bytes <` threshold
-  - `Data Disk IOPS Consumed` / `OS Disk IOPS Consumed`
-  - `Network In Total > 500000` / `Network Out Total > 20000`
-  - `VMAvailabilityMetric < 1` (→ `VMDown_CUS`, `VMDown_STI`)
-  - Activity log alert on `VM Deallocation` events
-- **Live validation:** the `VMDown_CUS` alert fired (Severity 3 – Informational) during testing and is visible in the Monitor → Alerts blade, confirming the alert pipeline end-to-end (rule → fire → Log Analytics activity log entry).
-
-See screenshot: [`screenshots/14-monitoring-alerts-log-analytics.jpg`](screenshots/14-monitoring-alerts-log-analytics.jpg)
+- Blob storage has public access turned off completely — I confirmed this by trying to open a blob URL directly in a browser and getting an access-denied error. Documents are only accessible through a SAS token, which is read-only, HTTPS-only, and expires after a set time.
+- Each region has its own NSG, so traffic is filtered per-region rather than relying on one shared rule set.
+- Centralizing identity in one Azure-hosted domain controller (instead of multiple on-prem DCs) makes user/group management easier to audit.
 
 ---
 
-## 8. Troubleshooting
+## Monitoring
 
-Full root-cause narratives (constraints hit, debugging steps, commands run, and resolutions) are documented in:
+Alert rules are set up per VM, per region, covering:
+- CPU usage
+- Available memory
+- Disk IOPS
+- Network in/out
+- Whether the VM is up at all (`VMDown_CUS`, `VMDown_STI`)
 
-➡️ **[`docs/troubleshooting.md`](docs/troubleshooting.md)**
-
-Highlights:
-- **Live DR failover test** — South India endpoint was taken offline; Traffic Manager marked it `Degraded` and rerouted `dealer.trafficmanager.net` to the Central US VM. Verified via `ping` (request timed out / 100% loss) and `nslookup` (DNS resolved to the new region).
-- **Free-tier compute quota constraint** — couldn't scale Availability Sets to multiple VMs per region or stand up an internal Load Balancer due to subscription CPU quota limits. Pivoted the HA/DR design to **Traffic Manager-based DNS failover** between two single-VM regions instead — and documented this as a deliberate design trade-off.
-- **Blob public access lockout** — confirmed storage hardening by reproducing the `PublicAccessNotPermitted` error on a direct blob URL, then issuing a SAS token and validating successful, scoped access.
-
----
-
-## 9. Lessons Learned
-
-See [`docs/lessons-learned-and-future-improvements.md`](docs/lessons-learned-and-future-improvements.md) for the full write-up. Key takeaways:
-
-- DNS-based failover (Traffic Manager) is a viable, low-cost DR pattern when regional Load Balancers/VMSS aren't feasible (e.g. subscription limits) — but it trades off failover speed (DNS TTL/caching) versus an L4/L7 load balancer.
-- Designing for **two routing methods on the same backend** (Priority for DR, Geographic for performance) clarified the difference between *availability-driven* and *latency-driven* traffic engineering.
-- Validating infrastructure behaviour with basic tools (`ping`, `nslookup`) — rather than just trusting the portal's green ticks — was essential to *prove* the failover actually worked.
+I didn't just leave these configured and assume they worked — I actually triggered one (by stopping a VM) and confirmed it showed up in the Alerts page with the right severity. See the screenshot: [`screenshots/14-monitoring-alerts-log-analytics.jpg`](screenshots/14-monitoring-alerts-log-analytics.jpg).
 
 ---
 
-## 10. Future Improvements
+## Problems I ran into
 
-- Rebuild this entire environment as **Infrastructure as Code (Terraform)** for repeatability and version-controlled change management — *tracked as a separate follow-up project.*
-- Replace the static HTML site with a small App Service / containerized workload, and front each region with **Azure Application Gateway** or **Azure Front Door** for L7 routing, WAF, and faster failover than DNS TTL allows.
-- Scale Availability Sets → **Virtual Machine Scale Sets (VMSS)** across Availability Zones once subscription limits allow.
-- Add **Azure Backup / Azure Site Recovery** for VM-level disaster recovery in addition to the application-level DNS failover.
-- Migrate Blob Storage access from SAS tokens to **Azure AD-based access (RBAC + Managed Identity)** for stronger auditability.
-- Build Grafana/Workbook dashboards on top of the Log Analytics workspace for a single-pane-of-glass view across both regions.
+Full write-up with commands and screenshots is in [`docs/troubleshooting.md`](docs/troubleshooting.md). Short version:
+
+1. **Testing the failover** — I shut down the South India endpoint and watched Traffic Manager mark it as degraded, then confirmed with `nslookup` that the DNS name now pointed to the Central US VM. Also ran `ping` against the South India IP and got 100% packet loss, which is what you'd expect.
+
+2. **Hit a subscription limit** — I originally wanted multiple VMs per region behind an internal load balancer, but my free-tier subscription's CPU quota wouldn't let me create a second VM in the same Availability Set. I switched the design to rely on Traffic Manager for failover between regions instead, since that didn't need more compute. Worth knowing this is a quota issue, not a design choice I'd make on a real subscription.
+
+3. **Blob storage access** — Wanted to make sure documents weren't publicly readable. Tried opening the blob URL directly and got a `PublicAccessNotPermitted` error, which confirmed the setting was working. Then generated a SAS token and confirmed that link worked instead.
+
+4. **Checking alerts actually fire** — Created the alert rules, then deliberately stopped a VM to make sure the availability alert actually triggered rather than just sitting there unused.
 
 ---
 
-## Repository Structure
+## What I'd do differently / next time
+
+- Rebuild this whole thing in Terraform instead of clicking through the Portal — that's planned as a separate project.
+- Look into Azure Front Door or Application Gateway instead of Traffic Manager, since DNS-based failover isn't instant (it depends on DNS caching/TTL) — a proper load balancer would fail over faster.
+- Use Azure AD-based access instead of SAS tokens for the storage account, since SAS tokens are still a shared secret.
+- If I had more quota, scale out to multiple VMs per region (or move to VM Scale Sets) for real load balancing within a region, not just failover between regions.
+- Add Azure Backup or Site Recovery for VM-level recovery, on top of the DNS failover I already have.
+
+More detail on this in [`docs/lessons-learned-and-future-improvements.md`](docs/lessons-learned-and-future-improvements.md).
+
+---
+
+## Repo structure
 
 ```text
 azure-multiregion-ha-dr-architecture/
 ├── README.md
 ├── architecture/
-│   └── architecture-diagram.md      # Network + failover sequence diagrams (Mermaid)
+│   └── architecture-diagram.md
 ├── docs/
-│   ├── troubleshooting.md           # Detailed RCA / debugging narratives
+│   ├── troubleshooting.md
 │   └── lessons-learned-and-future-improvements.md
-├── resume/
-│   ├── resume-bullets.md
-│   ├── linkedin-project-description.md
-│   └── interview-talking-points.md
-└── screenshots/                     # 14 annotated screenshots from the build
+└── screenshots/
 ```
 
----
-
-## About This Project
-
-This is a **personal / independent cloud engineering project** completed as part of self-directed AZ-104 (Azure Administrator) study. All resources were provisioned and tested in a personal Azure subscription. No production data or employer infrastructure was used.
+This was built and tested in my own personal Azure subscription — no employer infrastructure or production data involved.
