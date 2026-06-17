@@ -6,7 +6,7 @@
 
 A personal cloud engineering project that designs and deploys a **multi-region, internet-facing web application** on Azure with built-in high availability, disaster recovery via automated DNS failover, identity migration from on-premises AD, and centralized monitoring.
 
-> **Project type:** Independent / self-directed Azure infrastructure project (AZ-104 applied learning project)
+> **Project type:** Independent / self-directed Azure infrastructure project
 > **Scenario:** A manufacturing company ("Bluetim") is migrating its on-premises infrastructure and a customer-facing "Dealer Portal" web application to Azure, with a requirement for high availability across two geographic regions.
 
 ---
