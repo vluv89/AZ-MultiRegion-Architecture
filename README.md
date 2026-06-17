@@ -201,4 +201,4 @@ azure-multiregion-ha-dr-architecture/
 
 ## About This Project
 
-This is a **personal / independent cloud engineering project** completed as part of self-directed AZ-104 (Azure Administrator) study. All resources were provisioned and tested in a personal Azure subscription. No production data or employer infrastructure was used.
+This is an **independent cloud engineering project**. All resources were provisioned and tested in a personal Azure subscription. No production data or employer infrastructure was used.
