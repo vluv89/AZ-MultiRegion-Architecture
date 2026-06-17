@@ -4,7 +4,12 @@ This is a personal project I built while studying for the AZ-104 (Azure Administ
 
 I deployed the same website to two Azure regions (Central US and South India), connected them, put Azure Traffic Manager in front of both so traffic automatically reroutes if one region fails, migrated user identity to an Azure-hosted domain controller, locked down document storage, and set up monitoring across both regions. I also tested the failover myself instead of just trusting that it was configured correctly.
 
+<<<<<<< HEAD
 This was built manually through the Azure Portal, not with Terraform — that's a separate project I'm planning next.
+=======
+> **Project type:** Independent / self-directed Azure infrastructure project
+> **Scenario:** A manufacturing company ("Bluetim") is migrating its on-premises infrastructure and a customer-facing "Dealer Portal" web application to Azure, with a requirement for high availability across two geographic regions.
+>>>>>>> 2f83772fa93c9cff821dfd946d8c57c5422471c6
 
 ---
 
@@ -139,4 +144,12 @@ azure-multiregion-ha-dr-architecture/
 └── screenshots/
 ```
 
+<<<<<<< HEAD
 This was built and tested in my own personal Azure subscription — no employer infrastructure or production data involved.
+=======
+---
+
+## About This Project
+
+This is an **independent cloud engineering project**. All resources were provisioned and tested in a personal Azure subscription. No production data or employer infrastructure was used.
+>>>>>>> 2f83772fa93c9cff821dfd946d8c57c5422471c6
